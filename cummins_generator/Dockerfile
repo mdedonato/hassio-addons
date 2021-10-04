@@ -9,9 +9,9 @@ COPY requirements.txt /
 COPY config.ini /
 RUN pip install -r requirements.txt
 
-#CMD [ "python", "./cummins.py" ]
+CMD [ "python", "./cummins.py" ]
 # Copy data for add-on
-COPY run.sh /
-RUN chmod a+x /run.sh
+#COPY run.sh /
+#RUN chmod a+x /run.sh
 
-CMD [ "/run.sh" ]
+#CMD [ "/run.sh" ]
