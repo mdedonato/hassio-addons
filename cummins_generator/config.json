@@ -1,8 +1,8 @@
 {
-  "name": "Hello world",
+  "name": "Cummins Generator Bridge",
   "version": "1",
-  "slug": "hello_world",
-  "description": "My first real add-on!",
+  "slug": "cummins_generator",
+  "description": "Connects Cummins Generator to MQTT",
   "arch": ["armhf", "armv7", "aarch64", "amd64", "i386"],
   "startup": "application",
   "boot": "auto",
