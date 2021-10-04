@@ -1,0 +1,6 @@
+requests==2.23.0
+paho-mqtt
+bs4
+pytz
+tzlocal
+configparser
