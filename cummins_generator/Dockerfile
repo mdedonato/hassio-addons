@@ -4,9 +4,7 @@ FROM $BUILD_FROM
 ENV LANG C.UTF-8
 
 FROM python:3
-RUN git clone https://github.com/mdedonato/cummins_generator.git src
-RUN cd src
-COPY cummins.py /
+ADD cummins.py /
 COPY requirements.txt /
 COPY config.ini /
 RUN pip install -r requirements.txt
