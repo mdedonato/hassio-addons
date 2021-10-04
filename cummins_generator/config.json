@@ -6,13 +6,14 @@
   "arch": ["armhf", "armv7", "aarch64", "amd64", "i386"],
   "startup": "services",
   "boot": "auto",
-  "options": {"mqtt_server": "",
+  "options": {"mqtt_server": "192.168.1.100",
               "generator_address" : "192.168.1.6",
               "username" : "admin",
               "password" : "cummins",
               "time_sync_min" : 10
               },
   "schema": {"mqtt_server": "str?",
+              "generator_address" : "str?",
               "username" : "str?",
               "password" : "str?",
               "time_sync_min" : "int?"
