@@ -1,6 +1,6 @@
 {
   "name": "Cummins Generator Bridge",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "slug": "cummins_generator",
   "description": "Connects Cummins Generator to MQTT",
   "arch": ["armhf", "armv7", "aarch64", "amd64", "i386"],
