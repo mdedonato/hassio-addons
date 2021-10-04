@@ -1,3 +1,6 @@
 #!/usr/bin/with-contenv bashio
 
-echo Hello world!
+echo Start Cummins Generator!
+
+python cummins.py
+
