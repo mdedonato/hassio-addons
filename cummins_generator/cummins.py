@@ -420,6 +420,12 @@ def service_shutdown(signum, frame):
     _RUNNING = False
     raise ServiceExit
 
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        logger.info("Connected to MQTT Broker!")
+    else:
+        logger.error("Failed to connect, return code %d\n", rc)
+
 def main():
     try:
         handler = logging.StreamHandler()
@@ -446,11 +452,13 @@ def main():
 
         config = configparser.ConfigParser()
         config.read(args.config)
-        logger.debug('Connecting to Generator')
+        logger.info('Connecting to Generator')
         cummins = Generator(config['CUMMINS']['Host'], config['CUMMINS']['Username'], config['CUMMINS']['Password'])
         mqtt_client = mqtt.Client("cummins")
         logger.debug('Starting Time Thread')
         time_thread = multiprocessing.Process(target=time_sync, args=(cummins,int(config['CUMMINS']['TimeSyncMin'])*60))
+    	mqtt_client.on_connect = on_connect
+
         mqtt_client.connect(config['MQTT']['Host'])
         cummins.subscribe_mqtt(mqtt_client)
         mqtt_client.loop_start()
