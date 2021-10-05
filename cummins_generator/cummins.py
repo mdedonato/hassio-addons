@@ -463,7 +463,7 @@ def main():
         time_thread = multiprocessing.Process(target=time_sync, args=(cummins,int(config['CUMMINS']['TimeSyncMin'])*60))
         mqtt_client.on_connect = on_connect
         mqtt_client.username_pw_set("mqttuser", "mqttuser")
-	mqtt_client.on_log=on_log
+        mqtt_client.on_log=on_log
         mqtt_client.connect(config['MQTT']['Host'])
         cummins.subscribe_mqtt(mqtt_client)
         mqtt_client.loop_start()
