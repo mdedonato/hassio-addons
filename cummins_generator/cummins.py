@@ -147,9 +147,9 @@ class Generator:
             logger.debug('HTTP', s.status_code)
             return False
         else:
-
+            logger.debug("Connected to Generator")
             status = remove_html_tags(s.text).split()
-
+            logger.debug(status)
             dt = "{} {}, {} {}:{}".format(status[9], status[10], status[11], status[0], status[1])
             self.last_datetime = self.datetime
             self.datetime = datetime.strptime(dt, "%B %d, %Y %H:%M")
@@ -454,6 +454,7 @@ def main():
         time_thread = multiprocessing.Process(target=time_sync, args=(cummins,int(config['CUMMINS']['TimeSyncMin'])*60))
         mqtt_client.enable_logger(logger)
         mqtt_client.username_pw_set("mqttuser", "mqttuser")
+        logger.debug('Connecting to MQTT')
         mqtt_client.connect(config['MQTT']['Host'])
         cummins.subscribe_mqtt(mqtt_client)
         mqtt_client.loop_start()
