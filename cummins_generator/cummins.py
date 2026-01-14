@@ -1102,7 +1102,7 @@ def setup_logging(debug: bool = False, log_level: Optional[str] = None):
     logger.setLevel(level)
     
     # Create formatter
-        formatter = logging.Formatter(
+    formatter = logging.Formatter(
         '%(asctime)s [%(levelname)-8s] %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
@@ -1233,7 +1233,7 @@ def main():
             args=(cummins, time_sync_interval, _RUNNING)
         )
         time_thread.daemon = True
-            time_thread.start()
+        time_thread.start()
 
         # Main loop
         try:
@@ -1256,8 +1256,8 @@ def main():
             _RUNNING.clear()
             time_thread.join(timeout=5)
         finally:
-        mqtt_client.loop_stop()
-        mqtt_client.disconnect()
+            mqtt_client.loop_stop()
+            mqtt_client.disconnect()
             logger.info('Shutting down - exiting main program')
             
     except KeyError as e:
