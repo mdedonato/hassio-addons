@@ -1,22 +1,32 @@
 {
   "name": "Cummins Generator Bridge",
-  "version": "1.2.11",
+  "version": "1.3.0",
   "slug": "cummins_generator",
   "description": "Connects Cummins Generator to MQTT",
   "arch": ["armhf", "armv7", "aarch64", "amd64", "i386"],
   "startup": "services",
   "boot": "auto",
-  "options": {"mqtt_server": "192.168.1.100",
+  "options": {"mqtt_server": "192.168.1.102",
               "generator_address" : "192.168.1.6",
               "username" : "admin",
               "password" : "cummins",
-              "time_sync_min" : 10
+              "time_sync_min" : 10,
+              "mqtt_prefix" : "cummins/",
+              "device_name" : "Cummins Generator",
+              "unique_id" : "",
+              "discovery_prefix" : "homeassistant",
+              "log_level" : ""
               },
   "schema": {"mqtt_server": "str?",
               "generator_address" : "str?",
               "username" : "str?",
               "password" : "str?",
-              "time_sync_min" : "int?"
+              "time_sync_min" : "int?",
+              "mqtt_prefix" : "str?",
+              "device_name" : "str?",
+              "unique_id" : "str?",
+              "discovery_prefix" : "str?",
+              "log_level" : "str?"
             },
   "map": ["config:rw"]
 }
