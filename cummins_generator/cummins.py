@@ -712,11 +712,39 @@ class Generator:
         prefix = self.MQTT_TOPICS['prefix']
         device_info = self._get_device_info()
         
+        # Remove old autodiscovery configs with the old unique_id format
+        # This cleans up any configs from previous runs with different unique_id
+        old_unique_ids = [
+            f"cummins_generator_{self.address.replace('.', '_')}",
+            f"cummins_generator_{self.address.replace('.', '_').replace(':', '_')}",
+        ]
+        components = ['sensor', 'binary_sensor', 'switch', 'button']
+        old_entities = [
+            'battery_voltage', 'load_1', 'load_2', 'output_voltage', 'output_frequency',
+            'engine_hours', 'status', 'fault', 'fault_desc', 'event', 'event_desc',
+            'auto_mode', 'time', 'date', 'event_log', 'fault_log', 'exercise_schedule',
+            'load_control', 'utility_present', 'utility_connected', 'running', 'standby',
+            'action_required', 'exercising', 'engine_start', 'engine_stop', 'engine_exercise',
+            'standby_enable'
+        ]
+        
+        for old_uid in old_unique_ids:
+            if old_uid != self.unique_id:  # Only remove if different
+                for component in components:
+                    for entity in old_entities:
+                        old_topic = f"{self.discovery_prefix}/{component}/{old_uid}_{entity}/config"
+                        # Also try to remove old format with slash separator
+                        old_topic_slash = f"{self.discovery_prefix}/{component}/{old_uid}/{entity}/config"
+                        mqtt_client.publish(old_topic_slash, "", MQTT_QOS, True)
+                        # Publish empty payload to remove old config
+                        mqtt_client.publish(old_topic, "", MQTT_QOS, True)
+                        logger.debug(f"Removed old discovery config: {old_topic}")
+        
         # Sensors
         sensors = [
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_battery_voltage",
+                "unique_id": f"{self.unique_id}/battery_voltage",
                 "name": "Battery Voltage",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['battery_voltage']}",
                 "device_class": "voltage",
@@ -725,7 +753,7 @@ class Generator:
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_load_1",
+                "unique_id": f"{self.unique_id}/load_1",
                 "name": "Load Line 1",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['load_1']}",
                 "unit_of_measurement": "%",
@@ -733,7 +761,7 @@ class Generator:
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_load_2",
+                "unique_id": f"{self.unique_id}/load_2",
                 "name": "Load Line 2",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['load_2']}",
                 "unit_of_measurement": "%",
@@ -741,7 +769,7 @@ class Generator:
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_output_voltage",
+                "unique_id": f"{self.unique_id}/output_voltage",
                 "name": "Output Voltage",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['output_volts']}",
                 "device_class": "voltage",
@@ -750,7 +778,7 @@ class Generator:
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_output_frequency",
+                "unique_id": f"{self.unique_id}/output_frequency",
                 "name": "Output Frequency",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['output_freq']}",
                 "device_class": "frequency",
@@ -759,7 +787,7 @@ class Generator:
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_engine_hours",
+                "unique_id": f"{self.unique_id}/engine_hours",
                 "name": "Engine Hours",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['engine_hrs']}",
                 "unit_of_measurement": "h",
@@ -768,63 +796,63 @@ class Generator:
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_status",
+                "unique_id": f"{self.unique_id}/status",
                 "name": "Status",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['status']}",
                 "icon": "mdi:information",
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_fault",
+                "unique_id": f"{self.unique_id}/fault",
                 "name": "Fault Code",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['fault']}",
                 "icon": "mdi:alert",
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_fault_desc",
+                "unique_id": f"{self.unique_id}/fault_desc",
                 "name": "Fault Description",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['fault_desc']}",
                 "icon": "mdi:alert-circle",
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_event",
+                "unique_id": f"{self.unique_id}/event",
                 "name": "Event Code",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['event']}",
                 "icon": "mdi:bell",
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_event_desc",
+                "unique_id": f"{self.unique_id}/event_desc",
                 "name": "Event Description",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['event_desc']}",
                 "icon": "mdi:bell-ring",
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_auto_mode",
+                "unique_id": f"{self.unique_id}/auto_mode",
                 "name": "Auto Mode",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['auto_mode']}",
                 "icon": "mdi:auto-mode",
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_time",
+                "unique_id": f"{self.unique_id}/time",
                 "name": "Generator Time",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['time']}",
                 "icon": "mdi:clock",
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_date",
+                "unique_id": f"{self.unique_id}/date",
                 "name": "Generator Date",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['date']}",
                 "icon": "mdi:calendar",
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_event_log",
+                "unique_id": f"{self.unique_id}/event_log",
                 "name": "Event Log",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['event_log']}",
                 "icon": "mdi:history",
@@ -832,7 +860,7 @@ class Generator:
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_fault_log",
+                "unique_id": f"{self.unique_id}/fault_log",
                 "name": "Fault Log",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['fault_log']}",
                 "icon": "mdi:alert-octagon",
@@ -840,14 +868,14 @@ class Generator:
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_exercise_schedule",
+                "unique_id": f"{self.unique_id}/exercise_schedule",
                 "name": "Exercise Schedule",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['exercise_schedule']}",
                 "icon": "mdi:calendar-clock",
             },
             {
                 "component": "sensor",
-                "unique_id": f"{self.unique_id}_load_control",
+                "unique_id": f"{self.unique_id}/load_control",
                 "name": "Load Control",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['load_control']}",
                 "icon": "mdi:lightning-bolt",
@@ -858,7 +886,7 @@ class Generator:
         binary_sensors = [
             {
                 "component": "binary_sensor",
-                "unique_id": f"{self.unique_id}_utility_present",
+                "unique_id": f"{self.unique_id}/utility_present",
                 "name": "Utility Present",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['utility_present']}",
                 "device_class": "power",
@@ -866,7 +894,7 @@ class Generator:
             },
             {
                 "component": "binary_sensor",
-                "unique_id": f"{self.unique_id}_utility_connected",
+                "unique_id": f"{self.unique_id}/utility_connected",
                 "name": "Utility Connected",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['utility_connected']}",
                 "device_class": "connectivity",
@@ -874,7 +902,7 @@ class Generator:
             },
             {
                 "component": "binary_sensor",
-                "unique_id": f"{self.unique_id}_running",
+                "unique_id": f"{self.unique_id}/running",
                 "name": "Running",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['running']}",
                 "device_class": "running",
@@ -882,7 +910,7 @@ class Generator:
             },
             {
                 "component": "binary_sensor",
-                "unique_id": f"{self.unique_id}_standby",
+                "unique_id": f"{self.unique_id}/standby",
                 "name": "Standby",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['standby']}",
                 "device_class": "power",
@@ -890,7 +918,7 @@ class Generator:
             },
             {
                 "component": "binary_sensor",
-                "unique_id": f"{self.unique_id}_action_required",
+                "unique_id": f"{self.unique_id}/action_required",
                 "name": "Action Required",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['action_required']}",
                 "device_class": "problem",
@@ -898,7 +926,7 @@ class Generator:
             },
             {
                 "component": "binary_sensor",
-                "unique_id": f"{self.unique_id}_exercising",
+                "unique_id": f"{self.unique_id}/exercising",
                 "name": "Exercising",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['exercising']}",
                 "value_template": "{{ 'ON' if value|upper == 'TRUE' else 'OFF' }}",
@@ -910,7 +938,7 @@ class Generator:
         buttons = [
             {
                 "component": "button",
-                "unique_id": f"{self.unique_id}_engine_start",
+                "unique_id": f"{self.unique_id}/engine_start",
                 "name": "Engine Start",
                 "command_topic": f"{prefix}{self.MQTT_TOPICS['engine_start']}",
                 "payload_press": "True",
@@ -918,7 +946,7 @@ class Generator:
             },
             {
                 "component": "button",
-                "unique_id": f"{self.unique_id}_engine_stop",
+                "unique_id": f"{self.unique_id}/engine_stop",
                 "name": "Engine Stop",
                 "command_topic": f"{prefix}{self.MQTT_TOPICS['engine_start']}",
                 "payload_press": "False",
@@ -926,7 +954,7 @@ class Generator:
             },
             {
                 "component": "button",
-                "unique_id": f"{self.unique_id}_engine_exercise",
+                "unique_id": f"{self.unique_id}/engine_exercise",
                 "name": "Engine Exercise",
                 "command_topic": f"{prefix}{self.MQTT_TOPICS['engine_exercise']}",
                 "payload_press": "True",
@@ -938,7 +966,7 @@ class Generator:
         switches = [
             {
                 "component": "switch",
-                "unique_id": f"{self.unique_id}_standby_enable",
+                "unique_id": f"{self.unique_id}/standby_enable",
                 "name": "Standby Enable",
                 "state_topic": f"{prefix}{self.MQTT_TOPICS['standby']}",
                 "command_topic": f"{prefix}{self.MQTT_TOPICS['standby_enable']}",
