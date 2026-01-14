@@ -599,6 +599,11 @@ class Generator:
 
     def publish_mqtt(self, mqtt_client: mqtt.Client):
         """Publish all changed generator status to MQTT."""
+        # Check if MQTT client is connected before publishing
+        if not mqtt_client.is_connected():
+            logger.debug('Skipping MQTT publish - client not connected')
+            return
+            
         logger.debug('Publishing generator status to MQTT')
         if not self.get_data():
             logger.warning('Skipping MQTT publish - failed to get generator data')
@@ -702,6 +707,7 @@ class Generator:
 
     def _publish_discovery_config(self, mqtt_client: mqtt.Client):
         """Publish MQTT autodiscovery configuration for Home Assistant."""
+        logger.info(f"Starting autodiscovery config publication (discovery_prefix: {self.discovery_prefix})")
         prefix = self.MQTT_TOPICS['prefix']
         device_info = self._get_device_info()
         
@@ -990,11 +996,17 @@ class Generator:
                     config["icon"] = entity["icon"]
             
             payload = json.dumps(config)
-            mqtt_client.publish(config_topic, payload, MQTT_QOS, True)
-            logger.debug(f"Published discovery config: {config_topic}")
+            try:
+                result = mqtt_client.publish(config_topic, payload, MQTT_QOS, True)
+                if result.rc == 0:  # MQTT_ERR_SUCCESS
+                    logger.debug(f"Published discovery config: {config_topic}")
+                else:
+                    logger.warning(f"Failed to publish discovery config {config_topic}: return code {result.rc}")
+            except Exception as e:
+                logger.error(f"Error publishing discovery config {config_topic}: {e}")
         
         self.discovery_published = True
-        logger.info(f"MQTT autodiscovery configuration published - {len(all_entities)} entities")
+        logger.info(f"MQTT autodiscovery configuration published - {len(all_entities)} entities to {self.discovery_prefix}/")
 
     def subscribe_mqtt(self, mqtt_client: mqtt.Client):
         """Subscribe to MQTT control topics."""
@@ -1140,11 +1152,21 @@ def create_mqtt_client(config: configparser.ConfigParser) -> mqtt.Client:
     mqtt_username = config.get('MQTT', 'Username', fallback=None)
     mqtt_password = config.get('MQTT', 'Password', fallback=None)
     
+    logger.info(f"Connecting to MQTT broker at {mqtt_host}:{mqtt_port}")
+    if mqtt_username:
+        logger.debug(f"Using MQTT username: {mqtt_username}")
+    else:
+        logger.debug("No MQTT username configured (anonymous connection)")
+    
     if mqtt_username and mqtt_password:
         mqtt_client.username_pw_set(mqtt_username, mqtt_password)
     
     try:
-        mqtt_client.connect(mqtt_host, mqtt_port, 60)
+        # Note: connect() is non-blocking when using loop_start() later
+        # It will establish the connection asynchronously
+        result = mqtt_client.connect(mqtt_host, mqtt_port, 60)
+        if result != 0:  # 0 = MQTT_ERR_SUCCESS
+            logger.warning(f"MQTT connect() returned non-zero: {result} (connection will be established asynchronously)")
     except Exception as e:
         logger.error(f"Failed to connect to MQTT broker: {e}")
         raise
@@ -1206,16 +1228,34 @@ def main():
         
         # Set up on_connect callback to publish discovery config
         def on_connect(client, userdata, flags, rc):
+            # MQTT return codes: 0=success, 1-5=errors
+            mqtt_rc_codes = {
+                0: "Connection successful",
+                1: "Connection refused - incorrect protocol version",
+                2: "Connection refused - invalid client identifier",
+                3: "Connection refused - server unavailable",
+                4: "Connection refused - bad username or password",
+                5: "Connection refused - not authorised"
+            }
+            
             if rc == 0:
-                logger.info("MQTT broker connected successfully")
+                logger.info(f"MQTT broker connected successfully - {mqtt_rc_codes.get(rc, 'Unknown')}")
                 # Publish availability status
                 prefix = cummins.MQTT_TOPICS['prefix']
-                client.publish(f"{prefix}status", "online", MQTT_QOS, True)
-                logger.debug("Published MQTT availability: online")
+                result = client.publish(f"{prefix}status", "online", MQTT_QOS, True)
+                if result.rc == 0:
+                    logger.debug("Published MQTT availability: online")
+                else:
+                    logger.warning(f"Failed to publish availability status: return code {result.rc}")
                 # Subscribe to control topics and publish discovery
                 cummins.subscribe_mqtt(client)
             else:
-                logger.error(f"MQTT connection failed with return code {rc}")
+                error_msg = mqtt_rc_codes.get(rc, f"Unknown error code {rc}")
+                logger.error(f"MQTT connection failed: {error_msg} (return code {rc})")
+                if rc == 4:
+                    logger.error("Check MQTT username and password in configuration")
+                elif rc == 5:
+                    logger.error("MQTT broker rejected connection - check broker ACL/permissions")
         
         def on_disconnect(client, userdata, rc):
             if rc == 0:
@@ -1230,6 +1270,13 @@ def main():
         mqtt_client.on_disconnect = on_disconnect
         
         mqtt_client.loop_start()
+        
+        # Wait a moment for connection to establish, then check status
+        time.sleep(2)
+        if mqtt_client.is_connected():
+            logger.info("MQTT client is connected and ready")
+        else:
+            logger.warning("MQTT client is not connected - will retry in background")
 
         # Start time sync thread
         logger.info('Starting time synchronization thread')
@@ -1246,9 +1293,24 @@ def main():
             # Track last time logs were published (publish every 5 minutes)
             last_log_publish = time.time()
             log_publish_interval = 300  # 5 minutes
+            
+            # Track autodiscovery publishing - try to publish after a short delay
+            autodiscovery_published = False
+            autodiscovery_retry_time = time.time() + 5  # Try after 5 seconds
 
             while _RUNNING.is_set():
                 time.sleep(1)
+                
+                # Try to publish autodiscovery if not yet published and enough time has passed
+                if not autodiscovery_published and time.time() >= autodiscovery_retry_time:
+                    if mqtt_client.is_connected():
+                        logger.info("Publishing autodiscovery configuration (retry)")
+                        cummins.subscribe_mqtt(mqtt_client)
+                        autodiscovery_published = cummins.discovery_published
+                    else:
+                        # Retry again in 5 seconds if not connected
+                        autodiscovery_retry_time = time.time() + 5
+                
                 cummins.publish_mqtt(mqtt_client)
                 
                 # Periodically publish logs and schedule
