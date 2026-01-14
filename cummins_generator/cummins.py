@@ -160,7 +160,7 @@ class Generator:
         
         # MQTT discovery configuration
         self.discovery_prefix = discovery_prefix
-        self.unique_id = unique_id or f"cummins_generator_{address.replace('.', '_')}"
+        self.unique_id = unique_id or "cummins"
         self.device_name = device_name
         self.discovery_published = False
         
