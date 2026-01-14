@@ -1129,9 +1129,9 @@ def create_mqtt_client(config: configparser.ConfigParser) -> mqtt.Client:
     """Create and configure MQTT client."""
     # Use callback API version 1 for compatibility with existing callback signatures
     try:
-        # paho-mqtt 2.0+ requires explicit callback API version
-        mqtt_client = mqtt.Client("cummins", callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
-    except AttributeError:
+        # paho-mqtt 2.0+ requires explicit callback API version as first positional argument
+        mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="cummins")
+    except (AttributeError, TypeError):
         # Fallback for older versions of paho-mqtt that don't have CallbackAPIVersion
         mqtt_client = mqtt.Client("cummins")
     
