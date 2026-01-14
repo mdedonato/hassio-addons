@@ -21,6 +21,7 @@ import signal
 import logging
 import sys
 import json
+import os
 from contextlib import contextmanager
 from typing import Optional, Dict, Any, List
 try:
@@ -1130,9 +1131,47 @@ def setup_logging(debug: bool = False, log_level: Optional[str] = None):
         logger.debug("Debug logging enabled")
 
 
-def load_config(config_path: str) -> configparser.ConfigParser:
-    """Load and return configuration."""
+def load_config(config_path: str = None) -> configparser.ConfigParser:
+    """Load and return configuration.
+    
+    Tries to load from Home Assistant options.json first, then falls back to config.ini.
+    """
     config = configparser.ConfigParser()
+    
+    # Try to load from Home Assistant options.json first
+    options_json_path = '/data/options.json'
+    if config_path is None and os.path.exists(options_json_path):
+        try:
+            with open(options_json_path, 'r') as f:
+                options = json.load(f)
+            
+            # Convert JSON options to INI format
+            config.add_section('CUMMINS')
+            config.set('CUMMINS', 'Host', options.get('generator_address', '192.168.1.6'))
+            config.set('CUMMINS', 'Username', options.get('username', 'admin'))
+            config.set('CUMMINS', 'Password', options.get('password', 'cummins'))
+            config.set('CUMMINS', 'TimeSyncMin', str(options.get('time_sync_min', 10)))
+            
+            config.add_section('MQTT')
+            config.set('MQTT', 'Host', options.get('mqtt_server', '192.168.1.102'))
+            config.set('MQTT', 'Port', str(options.get('mqtt_port', 1883)))
+            config.set('MQTT', 'Username', options.get('mqtt_username', ''))
+            config.set('MQTT', 'Password', options.get('mqtt_password', ''))
+            config.set('MQTT', 'Prefix', options.get('mqtt_prefix', 'cummins/'))
+            config.set('MQTT', 'DeviceName', options.get('device_name', 'Cummins Generator'))
+            config.set('MQTT', 'UniqueID', options.get('unique_id', ''))
+            config.set('MQTT', 'DiscoveryPrefix', options.get('discovery_prefix', 'homeassistant'))
+            
+            config.add_section('LOGGING')
+            config.set('LOGGING', 'LogLevel', options.get('log_level', ''))
+            
+            return config
+        except Exception as e:
+            logger.warning(f"Failed to load from options.json: {e}, falling back to config.ini")
+    
+    # Fall back to config.ini file
+    if config_path is None:
+        config_path = './config.ini'
     config.read(config_path)
     return config
 
@@ -1148,7 +1187,11 @@ def create_mqtt_client(config: configparser.ConfigParser) -> mqtt.Client:
         mqtt_client = mqtt.Client("cummins")
     
     mqtt_host = config.get('MQTT', 'Host', fallback='localhost')
-    mqtt_port = config.getint('MQTT', 'Port', fallback=1883)
+    mqtt_port_str = config.get('MQTT', 'Port', fallback='1883')
+    try:
+        mqtt_port = int(mqtt_port_str) if mqtt_port_str else 1883
+    except (ValueError, TypeError):
+        mqtt_port = 1883
     mqtt_username = config.get('MQTT', 'Username', fallback=None)
     mqtt_password = config.get('MQTT', 'Password', fallback=None)
     
