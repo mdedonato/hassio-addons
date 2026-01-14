@@ -732,13 +732,21 @@ class Generator:
             if old_uid != self.unique_id:  # Only remove if different
                 for component in components:
                     for entity in old_entities:
+                        # Remove old underscore format: cummins_generator_192_168_1_6_entity
                         old_topic = f"{self.discovery_prefix}/{component}/{old_uid}_{entity}/config"
+                        mqtt_client.publish(old_topic, "", MQTT_QOS, True)
+                        logger.debug(f"Removed old discovery config: {old_topic}")
                         # Also try to remove old format with slash separator
                         old_topic_slash = f"{self.discovery_prefix}/{component}/{old_uid}/{entity}/config"
                         mqtt_client.publish(old_topic_slash, "", MQTT_QOS, True)
-                        # Publish empty payload to remove old config
-                        mqtt_client.publish(old_topic, "", MQTT_QOS, True)
-                        logger.debug(f"Removed old discovery config: {old_topic}")
+        
+        # Also remove old cummins_* format (with underscores, not slashes)
+        # These are the ones showing up at the same level as omnilink
+        for component in components:
+            for entity in old_entities:
+                old_underscore_topic = f"{self.discovery_prefix}/{component}/cummins_{entity}/config"
+                mqtt_client.publish(old_underscore_topic, "", MQTT_QOS, True)
+                logger.debug(f"Removed old underscore format config: {old_underscore_topic}")
         
         # Sensors
         sensors = [
