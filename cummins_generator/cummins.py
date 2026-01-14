@@ -1127,7 +1127,13 @@ def load_config(config_path: str) -> configparser.ConfigParser:
 
 def create_mqtt_client(config: configparser.ConfigParser) -> mqtt.Client:
     """Create and configure MQTT client."""
-    mqtt_client = mqtt.Client("cummins")
+    # Use callback API version 1 for compatibility with existing callback signatures
+    try:
+        # paho-mqtt 2.0+ requires explicit callback API version
+        mqtt_client = mqtt.Client("cummins", callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
+    except AttributeError:
+        # Fallback for older versions of paho-mqtt that don't have CallbackAPIVersion
+        mqtt_client = mqtt.Client("cummins")
     
     mqtt_host = config.get('MQTT', 'Host', fallback='localhost')
     mqtt_port = config.getint('MQTT', 'Port', fallback=1883)
