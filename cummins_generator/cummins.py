@@ -653,7 +653,7 @@ class Generator:
             mqtt_client.publish(f"{prefix}{self.MQTT_TOPICS['event_log']}", payload, MQTT_QOS, MQTT_RETAIN)
             published_count += 1
             logger.debug(f"Published event log - {len(event_log)} events")
-            else:
+        else:
             logger.debug("No event log data to publish")
         
         # Publish fault log
@@ -663,7 +663,7 @@ class Generator:
             mqtt_client.publish(f"{prefix}{self.MQTT_TOPICS['fault_log']}", payload, MQTT_QOS, MQTT_RETAIN)
             published_count += 1
             logger.debug(f"Published fault log - {len(fault_log)} faults")
-            else:
+        else:
             logger.debug("No fault log data to publish")
         
         # Publish load control status
@@ -673,7 +673,7 @@ class Generator:
             mqtt_client.publish(f"{prefix}{self.MQTT_TOPICS['load_control']}", payload, MQTT_QOS, MQTT_RETAIN)
             published_count += 1
             logger.debug(f"Published load control status")
-            else:
+        else:
             logger.debug("No load control data to publish")
         
         # Optionally publish exercise schedule
