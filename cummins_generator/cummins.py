@@ -703,7 +703,6 @@ class Generator:
             "manufacturer": "Cummins",
             "model": "Standby Generator",
             "sw_version": __version__,
-            "via_device": None,
         }
 
     def _publish_discovery_config(self, mqtt_client: mqtt.Client):
