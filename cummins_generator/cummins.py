@@ -1176,7 +1176,7 @@ def load_config(config_path: str = None) -> configparser.ConfigParser:
     
     # Try to load from Home Assistant options.json first
     options_json_path = '/data/options.json'
-    if config_path is None and os.path.exists(options_json_path):
+    if os.path.exists(options_json_path):
         try:
             with open(options_json_path, 'r') as f:
                 options = json.load(f)
@@ -1189,7 +1189,7 @@ def load_config(config_path: str = None) -> configparser.ConfigParser:
             config.set('CUMMINS', 'TimeSyncMin', str(options.get('time_sync_min', 10)))
             
             config.add_section('MQTT')
-            config.set('MQTT', 'Host', options.get('mqtt_server', '192.168.1.102'))
+            config.set('MQTT', 'Host', options.get('mqtt_server', 'localhost'))
             config.set('MQTT', 'Port', str(options.get('mqtt_port', 1883)))
             config.set('MQTT', 'Username', options.get('mqtt_username', ''))
             config.set('MQTT', 'Password', options.get('mqtt_password', ''))
