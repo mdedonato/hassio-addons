@@ -15,4 +15,4 @@ COPY config.ini .
 COPY run.sh /
 RUN chmod a+x /run.sh
 
-CMD [ "/bin/bash", "/run.sh" ]
+CMD [ "/run.sh" ]
