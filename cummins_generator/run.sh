@@ -1,5 +1,4 @@
 #!/usr/bin/with-contenv bashio
 
 echo Start Cummins Generator!
-python cummins.py -d
-
+python3 /app/cummins.py -d

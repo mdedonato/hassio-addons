@@ -5,7 +5,7 @@ Monitors a Cummins generator via HTTP and publishes status to MQTT.
 Supports remote control commands via MQTT subscriptions.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.4.0"
 
 import re
 import requests
@@ -15,7 +15,6 @@ import paho.mqtt.client as mqtt
 import argparse
 import threading
 import configparser
-import pytz
 from tzlocal import get_localzone
 import signal
 import logging
@@ -31,7 +30,7 @@ except ImportError:
 
 
 # Constants
-TIMEZONE = pytz.timezone('America/New_York')
+TIMEZONE = get_localzone()
 REQUEST_TIMEOUT = 10
 MQTT_QOS = 0
 MQTT_RETAIN = True
@@ -598,17 +597,16 @@ class Generator:
             payload = str(current) if isinstance(current, bool) else current
             mqtt_client.publish(full_topic, payload, MQTT_QOS, MQTT_RETAIN)
 
-    def publish_mqtt(self, mqtt_client: mqtt.Client):
-        """Publish all changed generator status to MQTT."""
-        # Check if MQTT client is connected before publishing
+    def publish_mqtt(self, mqtt_client: mqtt.Client) -> bool:
+        """Publish all changed generator status to MQTT. Returns True on success."""
         if not mqtt_client.is_connected():
             logger.debug('Skipping MQTT publish - client not connected')
-            return
+            return False
             
         logger.debug('Publishing generator status to MQTT')
         if not self.get_data():
             logger.warning('Skipping MQTT publish - failed to get generator data')
-            return
+            return False
 
         # Publish datetime (time and date together)
         datetime_current = self._get_state('datetime')
@@ -646,6 +644,8 @@ class Generator:
             current = self._get_state(state_key)
             last = self._get_last_state(state_key)
             self._publish_if_changed(mqtt_client, self.MQTT_TOPICS[topic_key], current, last)
+
+        return True
 
     def publish_logs_mqtt(self, mqtt_client: mqtt.Client, include_schedule: bool = False):
         """Publish event log, fault log, and optionally exercise schedule to MQTT."""
@@ -955,8 +955,8 @@ class Generator:
                 "component": "button",
                 "unique_id": f"{self.unique_id}/engine_stop",
                 "name": "Engine Stop",
-                "command_topic": f"{prefix}{self.MQTT_TOPICS['engine_start']}",
-                "payload_press": "False",
+                "command_topic": f"{prefix}engine_stop",
+                "payload_press": "True",
                 "icon": "mdi:engine-off",
             },
             {
@@ -1052,6 +1052,7 @@ class Generator:
             (self.MQTT_TOPICS['engine_exercise'], self.on_message_engine_exercise),
             (self.MQTT_TOPICS['standby_enable'], self.on_message_standby_enable),
             (self.MQTT_TOPICS['engine_start'], self.on_message_engine_start),
+            ('engine_stop', self.on_message_engine_stop),
         ]
         
         for topic, callback in subscriptions:
@@ -1092,6 +1093,12 @@ class Generator:
         if payload == "True":
             self.engine_start()
         elif payload == "False":
+            self.engine_stop()
+
+    def on_message_engine_stop(self, mosq, obj, msg):
+        """Handle engine stop MQTT command."""
+        payload = self._decode_payload(msg)
+        if payload == "True":
             self.engine_stop()
 
 
@@ -1211,14 +1218,11 @@ def load_config(config_path: str = None) -> configparser.ConfigParser:
     return config
 
 
-def create_mqtt_client(config: configparser.ConfigParser) -> mqtt.Client:
+def create_mqtt_client(config: configparser.ConfigParser, mqtt_prefix: str = "cummins/") -> mqtt.Client:
     """Create and configure MQTT client."""
-    # Use callback API version 1 for compatibility with existing callback signatures
     try:
-        # paho-mqtt 2.0+ requires explicit callback API version as first positional argument
         mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="cummins")
     except (AttributeError, TypeError):
-        # Fallback for older versions of paho-mqtt that don't have CallbackAPIVersion
         mqtt_client = mqtt.Client("cummins")
     
     mqtt_host = config.get('MQTT', 'Host', fallback='localhost')
@@ -1238,6 +1242,8 @@ def create_mqtt_client(config: configparser.ConfigParser) -> mqtt.Client:
     
     if mqtt_username and mqtt_password:
         mqtt_client.username_pw_set(mqtt_username, mqtt_password)
+    
+    mqtt_client.will_set(f"{mqtt_prefix}status", "offline", MQTT_QOS, True)
     
     try:
         # Note: connect() is non-blocking when using loop_start() later
@@ -1302,7 +1308,7 @@ def main():
         )
         
         # Setup MQTT
-        mqtt_client = create_mqtt_client(config)
+        mqtt_client = create_mqtt_client(config, mqtt_prefix=mqtt_prefix)
         
         # Set up on_connect callback to publish discovery config
         def on_connect(client, userdata, flags, rc):
@@ -1340,9 +1346,6 @@ def main():
                 logger.info("MQTT broker disconnected normally")
             else:
                 logger.warning(f"MQTT broker disconnected unexpectedly (rc={rc})")
-            prefix = cummins.MQTT_TOPICS['prefix']
-            client.publish(f"{prefix}status", "offline", MQTT_QOS, True)
-            logger.debug("Published MQTT availability: offline")
         
         mqtt_client.on_connect = on_connect
         mqtt_client.on_disconnect = on_disconnect
@@ -1368,30 +1371,38 @@ def main():
 
         # Main loop
         try:
-            # Track last time logs were published (publish every 5 minutes)
             last_log_publish = time.time()
             log_publish_interval = 300  # 5 minutes
             
-            # Track autodiscovery publishing - try to publish after a short delay
             autodiscovery_published = False
-            autodiscovery_retry_time = time.time() + 5  # Try after 5 seconds
+            autodiscovery_retry_time = time.time() + 5
+
+            BACKOFF_MIN = 5
+            BACKOFF_MAX = 60
+            poll_interval = BACKOFF_MIN
+            consecutive_failures = 0
 
             while _RUNNING.is_set():
-                time.sleep(1)
+                time.sleep(poll_interval)
                 
-                # Try to publish autodiscovery if not yet published and enough time has passed
                 if not autodiscovery_published and time.time() >= autodiscovery_retry_time:
                     if mqtt_client.is_connected():
                         logger.info("Publishing autodiscovery configuration (retry)")
                         cummins.subscribe_mqtt(mqtt_client)
                         autodiscovery_published = cummins.discovery_published
                     else:
-                        # Retry again in 5 seconds if not connected
                         autodiscovery_retry_time = time.time() + 5
                 
-                cummins.publish_mqtt(mqtt_client)
+                success = cummins.publish_mqtt(mqtt_client)
+
+                if success:
+                    consecutive_failures = 0
+                    poll_interval = BACKOFF_MIN
+                else:
+                    consecutive_failures += 1
+                    poll_interval = min(BACKOFF_MIN * (2 ** consecutive_failures), BACKOFF_MAX)
+                    logger.debug(f"Generator unreachable, next retry in {poll_interval}s (attempt {consecutive_failures})")
                 
-                # Periodically publish logs and schedule
                 current_time = time.time()
                 if current_time - last_log_publish >= log_publish_interval:
                     logger.info('Publishing logs and schedule data (periodic update)')
@@ -1402,6 +1413,8 @@ def main():
             _RUNNING.clear()
             time_thread.join(timeout=5)
         finally:
+            prefix = cummins.MQTT_TOPICS['prefix']
+            mqtt_client.publish(f"{prefix}status", "offline", MQTT_QOS, True)
             mqtt_client.loop_stop()
             mqtt_client.disconnect()
             logger.info('Shutting down - exiting main program')
