@@ -5,7 +5,7 @@ Monitors a Cummins generator via HTTP and publishes status to MQTT.
 Supports remote control commands via MQTT subscriptions.
 """
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 import re
 import requests
@@ -15,7 +15,9 @@ import paho.mqtt.client as mqtt
 import argparse
 import threading
 import configparser
+import concurrent.futures
 from tzlocal import get_localzone
+from zoneinfo import ZoneInfo
 import signal
 import logging
 import sys
@@ -30,10 +32,17 @@ except ImportError:
 
 
 # Constants
+# The add-on container runs on UTC; get_localzone() is only a fallback.
+# The real timezone comes from the 'timezone' option via set_timezone().
 TIMEZONE = get_localzone()
 REQUEST_TIMEOUT = 10
+# requests' read timeout is per-byte, not total: a half-hung embedded server
+# that dribbles bytes can stall a request forever. This caps the whole request.
+REQUEST_DEADLINE = 30
 MQTT_QOS = 0
 MQTT_RETAIN = True
+# Consecutive poll failures before the generator is reported offline to HA
+OFFLINE_AFTER_FAILURES = 3
 
 # Status code mappings
 STATUS_CODES = {
@@ -88,8 +97,18 @@ def remove_html_tags(text: str) -> str:
     return re.sub(clean, '', text)
 
 
+def set_timezone(name: str):
+    """Set the timezone used for time sync from the add-on configuration."""
+    global TIMEZONE
+    try:
+        TIMEZONE = ZoneInfo(name)
+        logger.info(f"Using timezone: {name}")
+    except Exception:
+        logger.warning(f"Unknown timezone {name!r} - falling back to system timezone {TIMEZONE}")
+
+
 def get_local_time() -> datetime:
-    """Get current local time in America/New_York timezone."""
+    """Get current local time in the configured timezone."""
     return datetime.now(TIMEZONE)
 
 
@@ -151,6 +170,10 @@ class Generator:
         # Thread safety
         self.lock = threading.Lock()
         self.session = requests.Session()
+        # Single worker so requests stay serialized; lets _make_request enforce
+        # a total deadline even when the server dribbles bytes forever
+        self._http_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix='http')
         
         # MQTT configuration
         # Ensure prefix ends with / if not empty
@@ -214,15 +237,26 @@ class Generator:
         finally:
             self.lock.release()
 
+    def _do_request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
+        if method.upper() == 'GET':
+            return self.session.get(url, **kwargs)
+        elif method.upper() == 'POST':
+            return self.session.post(url, **kwargs)
+        return None
+
     def _make_request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
-        """Make a thread-safe HTTP request."""
+        """Make a thread-safe HTTP request with a hard total deadline."""
         kwargs.setdefault('timeout', REQUEST_TIMEOUT)
         with self._request_lock():
+            future = self._http_executor.submit(self._do_request, method, url, **kwargs)
             try:
-                if method.upper() == 'GET':
-                    return self.session.get(url, **kwargs)
-                elif method.upper() == 'POST':
-                    return self.session.post(url, **kwargs)
+                return future.result(timeout=REQUEST_DEADLINE)
+            except concurrent.futures.TimeoutError:
+                logger.warning(f"Request exceeded {REQUEST_DEADLINE}s deadline - resetting connection to generator")
+                # Closing the session aborts the stuck socket so the worker thread can finish
+                self.session.close()
+                self.session = requests.Session()
+                return None
             except requests.exceptions.Timeout as e:
                 logger.warning(f"Request timeout connecting to generator: {e}")
                 return None
@@ -1193,6 +1227,9 @@ def load_config(config_path: str = None) -> configparser.ConfigParser:
             config.set('CUMMINS', 'Username', options.get('username', 'admin'))
             config.set('CUMMINS', 'Password', options.get('password', 'cummins'))
             config.set('CUMMINS', 'TimeSyncMin', str(options.get('time_sync_min', 10)))
+            config.set('CUMMINS', 'Timezone', options.get('timezone', 'America/New_York'))
+            config.set('CUMMINS', 'PollIntervalSec', str(options.get('poll_interval_sec', 15)))
+            config.set('CUMMINS', 'LogRefreshMin', str(options.get('log_refresh_min', 60)))
             
             config.add_section('MQTT')
             config.set('MQTT', 'Host', options.get('mqtt_server', 'localhost'))
@@ -1286,6 +1323,9 @@ def main():
         # Setup logging (must be done after config is loaded)
         setup_logging(debug=args.debug, log_level=log_level)
         
+        # Apply configured timezone (container clock runs on UTC)
+        set_timezone(config.get('CUMMINS', 'Timezone', fallback='America/New_York'))
+
         # Initialize generator
         logger.info('Initializing generator connection')
         mqtt_prefix = config.get('MQTT', 'Prefix', fallback='cummins/')
@@ -1309,7 +1349,20 @@ def main():
         
         # Setup MQTT
         mqtt_client = create_mqtt_client(config, mqtt_prefix=mqtt_prefix)
-        
+
+        # Availability now tracks the generator, not just this process:
+        # None = unknown (startup), True = reachable, False = offline
+        generator_online = {'state': None}
+
+        def publish_availability(client, online: bool):
+            prefix = cummins.MQTT_TOPICS['prefix']
+            payload = "online" if online else "offline"
+            result = client.publish(f"{prefix}status", payload, MQTT_QOS, True)
+            if result.rc == 0:
+                logger.info(f"Published MQTT availability: {payload}")
+            else:
+                logger.warning(f"Failed to publish availability status: return code {result.rc}")
+
         # Set up on_connect callback to publish discovery config
         def on_connect(client, userdata, flags, rc):
             # MQTT return codes: 0=success, 1-5=errors
@@ -1324,13 +1377,9 @@ def main():
             
             if rc == 0:
                 logger.info(f"MQTT broker connected successfully - {mqtt_rc_codes.get(rc, 'Unknown')}")
-                # Publish availability status
-                prefix = cummins.MQTT_TOPICS['prefix']
-                result = client.publish(f"{prefix}status", "online", MQTT_QOS, True)
-                if result.rc == 0:
-                    logger.debug("Published MQTT availability: online")
-                else:
-                    logger.warning(f"Failed to publish availability status: return code {result.rc}")
+                # Re-publish current availability (don't claim online if the
+                # generator is known to be unreachable)
+                publish_availability(client, generator_online['state'] is not False)
                 # Subscribe to control topics and publish discovery
                 cummins.subscribe_mqtt(client)
             else:
@@ -1372,19 +1421,20 @@ def main():
         # Main loop
         try:
             last_log_publish = time.time()
-            log_publish_interval = 300  # 5 minutes
-            
+            log_publish_interval = int(config.get('CUMMINS', 'LogRefreshMin', fallback='60')) * 60
+
             autodiscovery_published = False
             autodiscovery_retry_time = time.time() + 5
 
-            BACKOFF_MIN = 5
-            BACKOFF_MAX = 60
+            BACKOFF_MIN = int(config.get('CUMMINS', 'PollIntervalSec', fallback='15'))
+            BACKOFF_MAX = max(60, BACKOFF_MIN * 4)
             poll_interval = BACKOFF_MIN
             consecutive_failures = 0
+            logger.info(f"Polling every {BACKOFF_MIN}s, logs/schedule every {log_publish_interval // 60} min")
 
             while _RUNNING.is_set():
                 time.sleep(poll_interval)
-                
+
                 if not autodiscovery_published and time.time() >= autodiscovery_retry_time:
                     if mqtt_client.is_connected():
                         logger.info("Publishing autodiscovery configuration (retry)")
@@ -1392,21 +1442,30 @@ def main():
                         autodiscovery_published = cummins.discovery_published
                     else:
                         autodiscovery_retry_time = time.time() + 5
-                
+
                 success = cummins.publish_mqtt(mqtt_client)
 
                 if success:
                     consecutive_failures = 0
                     poll_interval = BACKOFF_MIN
+                    if generator_online['state'] is not True:
+                        logger.info("Generator is reachable")
+                        generator_online['state'] = True
+                        publish_availability(mqtt_client, True)
                 else:
                     consecutive_failures += 1
                     poll_interval = min(BACKOFF_MIN * (2 ** consecutive_failures), BACKOFF_MAX)
                     logger.debug(f"Generator unreachable, next retry in {poll_interval}s (attempt {consecutive_failures})")
-                
+                    if generator_online['state'] is not False and consecutive_failures >= OFFLINE_AFTER_FAILURES:
+                        logger.warning(f"Generator unreachable {consecutive_failures} times in a row - marking offline in Home Assistant")
+                        generator_online['state'] = False
+                        publish_availability(mqtt_client, False)
+
                 current_time = time.time()
                 if current_time - last_log_publish >= log_publish_interval:
-                    logger.info('Publishing logs and schedule data (periodic update)')
-                    cummins.publish_logs_mqtt(mqtt_client, include_schedule=True)
+                    if generator_online['state'] is True:
+                        logger.info('Publishing logs and schedule data (periodic update)')
+                        cummins.publish_logs_mqtt(mqtt_client, include_schedule=True)
                     last_log_publish = current_time
 
         except ServiceExit:
